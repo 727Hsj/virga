@@ -68,6 +68,7 @@ pub use server::{VirgeServer, ServerConfig};
 
 
 pub const DEFAULT_SERVER_CID: usize = 103;
+pub const VMADDR_CID_ANY: usize = 0xFFFFFFFF;
 pub const DEFAULT_SERVER_PORT: usize = 1234;
 
 pub const KIB: usize = 1024;

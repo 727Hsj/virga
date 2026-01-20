@@ -24,21 +24,34 @@ use futures::AsyncReadExt;
 use futures::AsyncWriteExt;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tokio_vsock::VsockStream;
+use log::*;
+
+use yamux::{Config, Connection, Mode};
+use yamux::Stream;
+
 
 /// Yamux 传输协议实现
 ///
 /// 直接管理 tokio-vsock 连接并使用 yamux 进行多路复用。
 pub struct YamuxTransport {
-    /// yamux 连接
-    connection: Option<yamux::Connection<tokio_util::compat::Compat<tokio_vsock::VsockStream>>>,
-
     /// 当前使用的 yamux 虚拟流
-    yamux_stream: Option<yamux::Stream>,
+    yamux_stream: Option<Stream>,
+
+    /// yamux 连接
+    connection: Option<Connection<tokio_util::compat::Compat<VsockStream>>>,
 }
 
 impl YamuxTransport {
-    /// 创建新的 Yamux 传输实例
-    pub fn new() -> Self {
+    /// 创建客户端模式的 Yamux 传输实例
+    pub fn new_client() -> Self {
+        Self {
+            connection: None,
+            yamux_stream: None,
+        }
+    }
+
+    /// 创建服务器模式的 Yamux 传输实例
+    pub fn new_server() -> Self {
         Self {
             connection: None,
             yamux_stream: None,
@@ -46,7 +59,7 @@ impl YamuxTransport {
     }
 
     /// 获取或创建 yamux 虚拟流
-    async fn get_or_create_stream(&mut self) -> Result<&mut yamux::Stream> {
+    async fn get_or_create_stream(&mut self) -> Result<&mut Stream> {
         if self.yamux_stream.is_none() {
             if let Some(connection) = &mut self.connection {
                 // 打开新的虚拟流
@@ -65,7 +78,7 @@ impl YamuxTransport {
 #[async_trait]
 impl Transport for YamuxTransport {
     async fn connect(&mut self, cid: u32, port: u32) -> Result<()> {
-        log::info!("Yamux transport connecting to cid={}, port={}", cid, port);
+        info!("Yamux transport connecting to cid={}, port={}", cid, port);
 
         // 建立 vsock 连接
         let stream = VsockStream::connect(tokio_vsock::VsockAddr::new(cid, port))
@@ -73,23 +86,23 @@ impl Transport for YamuxTransport {
             .map_err(|e| VirgeError::ConnectionError(format!("Failed to connect vsock: {}", e)))?;
 
         // 初始化 yamux
-        let config = yamux::Config::default();
-        let connection = yamux::Connection::new(stream.compat(), config, yamux::Mode::Client);
+        let config = Config::default();
+        let connection = Connection::new(stream.compat(), config, Mode::Client);
 
         self.connection = Some(connection);
 
-        log::info!("Yamux transport connected successfully");
+        info!("Yamux transport connected successfully");
         Ok(())
     }
 
     async fn disconnect(&mut self) -> Result<()> {
-        log::info!("Yamux transport disconnecting");
+        info!("Yamux transport disconnecting");
 
         // 清理资源
-        self.yamux_stream = None;
         self.connection = None;
+        self.yamux_stream = None;
 
-        log::info!("Yamux transport disconnected");
+        info!("Yamux transport disconnected");
         Ok(())
     }
 
@@ -102,9 +115,10 @@ impl Transport for YamuxTransport {
 
         let stream = self.get_or_create_stream().await?;
         stream.write_all(&data).await
-            .map_err(|e| VirgeError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+            .map_err(|e| VirgeError::Other(format!("yamux send error: {}", e)))?;
+        stream.close().await?;
 
-        log::debug!("Yamux sent {} bytes", data.len());
+        debug!("Yamux sent {} bytes", data.len());
         Ok(())
     }
 
@@ -118,9 +132,9 @@ impl Transport for YamuxTransport {
         let stream = self.get_or_create_stream().await?;
         let mut buf = Vec::new();
         stream.read_to_end(&mut buf).await
-            .map_err(|e| VirgeError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+            .map_err(|e| VirgeError::Other(format!("yamux recv error: {}", e)))?;
 
-        log::debug!("Yamux received {} bytes", buf.len());
+        debug!("Yamux received {} bytes", buf.len());
         Ok(buf)
     }
 
@@ -129,15 +143,15 @@ impl Transport for YamuxTransport {
     }
 
     async fn from_tokio_stream(&mut self, stream: tokio_vsock::VsockStream) -> Result<()> {
-        log::info!("Yamux transport initializing from existing tokio stream");
+        info!("Yamux transport initializing from existing tokio stream");
 
         // 初始化 yamux
         let config = yamux::Config::default();
-        let connection = yamux::Connection::new(stream.compat(), config, yamux::Mode::Server);
+        let connection = Connection::new(stream.compat(), config, yamux::Mode::Server);
 
         self.connection = Some(connection);
 
-        log::info!("Yamux transport initialized from stream successfully");
+        info!("Yamux transport initialized from stream successfully");
         Ok(())
     }
 }

@@ -71,7 +71,11 @@ impl Transport for XTransportHandler {
 
         // 清理资源
         self.transport = None;
-        self.stream = None;
+        if let Some(stream) = &self.stream {
+            stream.shutdown(std::net::Shutdown::Both).map_err(
+                |e| VirgeError::ConnectionError(format!("Failed to disconnect vsock: {}", e))
+            )?;
+        }
 
         info!("XTransport disconnected");
         Ok(())
@@ -84,7 +88,7 @@ impl Transport for XTransportHandler {
         transport.send_message(&data)
             .map_err(|e| VirgeError::Other(format!("XTransport send error: {}", e)))?;
 
-        log::debug!("XTransport sent {} bytes", data.len());
+        debug!("XTransport sent {} bytes", data.len());
         Ok(())
     }
 
@@ -95,7 +99,7 @@ impl Transport for XTransportHandler {
         let data = transport.recv_message()
             .map_err(|e| VirgeError::Other(format!("XTransport recv error: {}", e)))?;
 
-        log::debug!("XTransport received {} bytes", data.len());
+        debug!("XTransport received {} bytes", data.len());
         Ok(data)
     }
 

@@ -85,7 +85,7 @@ impl VirgeClient {
     #[cfg(feature = "use-yamux")]
     pub fn with_yamux(config: ClientConfig) -> Self {
         Self {
-            transport: Box::new(crate::transport::YamuxTransport::new()),
+            transport: Box::new(crate::transport::YamuxTransport::new_client()),
             config,
             connected: false,
         }

@@ -40,16 +40,6 @@ use log::*;
 use crate::error::Result;
 use crate::transport::Transport;
 
-/// 传输协议类型
-#[derive(Clone, Debug)]
-pub enum TransportType {
-    #[cfg(feature = "use-yamux")]
-    Yamux,
-    #[cfg(feature = "use-xtransport")]
-    XTransport,
-    #[cfg(not(any(feature = "use-yamux", feature = "use-xtransport")))]
-    None,
-}
 
 /// 服务器配置
 #[derive(Clone, Debug)]
@@ -67,7 +57,7 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            listen_cid: vsock::VMADDR_CID_ANY as u32,
+            listen_cid: crate::VMADDR_CID_ANY as u32,
             listen_port: crate::DEFAULT_SERVER_PORT as u32,
             max_connections: 100,
         }
@@ -90,9 +80,6 @@ pub struct VirgeServer {
     /// 服务器配置
     config: ServerConfig,
 
-    /// 传输协议类型
-    transport_type: TransportType,
-
     /// vsock 监听器
     listener: Option<Listener>,
 
@@ -101,15 +88,17 @@ pub struct VirgeServer {
 }
 
 impl VirgeServer {
+    /// 创建新的服务器实例
+    ///
+    /// 根据启用的编译特性自动选择传输协议。
     pub fn new(config: ServerConfig) -> Self {
-        #[cfg(feature = "use-xtransport")]
-        if cfg!(feature = "use-xtransport") {
-            return Self::with_xtransport(config);
-        }
         #[cfg(feature = "use-yamux")]
-        if cfg!(feature = "use-yamux") {
-            return Self::with_yamux(config);
-        }
+        return Self::with_yamux(config);
+
+        #[cfg(feature = "use-xtransport")]
+        return Self::with_xtransport(config);
+
+        #[cfg(not(any(feature = "use-yamux", feature = "use-xtransport")))]
         panic!("Either use-yamux or use-xtransport feature must be enabled");
     }
 
@@ -118,7 +107,6 @@ impl VirgeServer {
     pub fn with_yamux(config: ServerConfig) -> Self {
         Self {
             config,
-            transport_type: TransportType::Yamux,
             listener: None,
             listening: false,
         }
@@ -129,7 +117,6 @@ impl VirgeServer {
     pub fn with_xtransport(config: ServerConfig) -> Self {
         Self {
             config,
-            transport_type: TransportType::XTransport,
             listener: None,
             listening: false,
         }
@@ -143,29 +130,24 @@ impl VirgeServer {
             self.config.listen_port
         );
 
-        match self.transport_type {
-            #[cfg(feature = "use-yamux")]
-            TransportType::Yamux => {
-                let addr = tokio_vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
-                let listener = tokio_vsock::VsockListener::bind(addr)
-                    .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to bind yamux listener: {}", e)))?;
-                self.listener = Some(Listener::Yamux(listener));
-                self.listening = true;
-                Ok(())
-            }
-            #[cfg(feature = "use-xtransport")]
-            TransportType::XTransport => {
-                let addr = vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
-                let listener = vsock::VsockListener::bind(&addr)
-                    .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to bind xtransport listener: {}", e)))?;
-                self.listener = Some(Listener::XTransport(listener));
-                self.listening = true;
-                Ok(())
-            }
-            #[cfg(not(any(feature = "use-yamux", feature = "use-xtransport")))]
-            TransportType::Yamux | TransportType::XTransport => {
-                Err(crate::error::VirgeError::Other("Transport feature not enabled".to_string()))
-            }
+        #[cfg(feature = "use-yamux")]
+        {
+            let addr = tokio_vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
+            let listener = tokio_vsock::VsockListener::bind(addr)
+                .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to bind yamux listener: {}", e)))?;
+            self.listener = Some(Listener::Yamux(listener));
+            self.listening = true;
+            return Ok(());
+        }
+
+        #[cfg(feature = "use-xtransport")]
+        {
+            let addr = vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
+            let listener = vsock::VsockListener::bind(&addr)
+                .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to bind xtransport listener: {}", e)))?;
+            self.listener = Some(Listener::XTransport(listener));
+            self.listening = true;
+            return Ok(());
         }
     }
 
@@ -177,42 +159,37 @@ impl VirgeServer {
             ));
         }
 
-        match self.transport_type {
-            #[cfg(feature = "use-yamux")]
-            TransportType::Yamux => {
-                if let Some(Listener::Yamux(listener)) = &mut self.listener {
-                    let (stream, addr) = listener.accept().await
-                        .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to accept yamux connection: {}", e)))?;
-                    info!("Accepted yamux connection from {:?}", addr);
+        #[cfg(feature = "use-yamux")]
+        {
+            if let Some(Listener::Yamux(listener)) = &mut self.listener {
+                let (stream, addr) = listener.accept().await
+                    .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to accept yamux connection: {}", e)))?;
+                info!("Accepted yamux connection from {:?}", addr);
 
-                    // 创建 YamuxTransport 实例并从流初始化
-                    let mut transport = Box::new(crate::transport::YamuxTransport::new());
-                    transport.from_tokio_stream(stream).await?;
+                // 创建 YamuxTransport 实例并从流初始化
+                let mut transport = Box::new(crate::transport::YamuxTransport::new_server());
+                transport.from_tokio_stream(stream).await?;
 
-                    Ok(transport)
-                } else {
-                    Err(crate::error::VirgeError::Other("Yamux listener not initialized".to_string()))
-                }
+                return Ok(transport);
+            } else {
+                return Err(crate::error::VirgeError::Other("Yamux listener not initialized".to_string()));
             }
-            #[cfg(feature = "use-xtransport")]
-            TransportType::XTransport => {
-                if let Some(Listener::XTransport(listener)) = &mut self.listener {
-                    let (stream, addr) = listener.accept()
-                        .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to accept xtransport connection: {}", e)))?;
-                    info!("Accepted xtransport connection from {:?}", addr);
+        }
 
-                    // 创建 XTransportHandler 实例并从流初始化
-                    let mut transport = Box::new(crate::transport::XTransportHandler::new());
-                    transport.from_stream(stream).await?;
+        #[cfg(feature = "use-xtransport")]
+        {
+            if let Some(Listener::XTransport(listener)) = &mut self.listener {
+                let (stream, addr) = listener.accept()
+                    .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to accept xtransport connection: {}", e)))?;
+                info!("Accepted xtransport connection from {:?}", addr);
 
-                    Ok(transport)
-                } else {
-                    Err(crate::error::VirgeError::Other("XTransport listener not initialized".to_string()))
-                }
-            }
-            #[cfg(not(any(feature = "use-yamux", feature = "use-xtransport")))]
-            TransportType::Yamux | TransportType::XTransport => {
-                Err(crate::error::VirgeError::Other("Transport feature not enabled".to_string()))
+                // 创建 XTransportHandler 实例并从流初始化
+                let mut transport = Box::new(crate::transport::XTransportHandler::new());
+                transport.from_stream(stream).await?;
+
+                return Ok(transport);
+            } else {
+                return Err(crate::error::VirgeError::Other("XTransport listener not initialized".to_string()));
             }
         }
     }
