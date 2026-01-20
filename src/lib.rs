@@ -78,12 +78,15 @@ pub mod server;
 pub use client::{VirgeClient, ClientConfig};
 pub use server::{ServerManager, VirgeServer, ServerConfig};
 
+pub const KIB: usize = 1024;
+pub const MIB: usize = KIB * 1024;
+pub const GIB: usize = MIB * 1024;
 
 pub const DEFAULT_SERVER_CID: usize = 103;
 pub const VMADDR_CID_ANY: usize = 0xFFFFFFFF;
 pub const DEFAULT_SERVER_PORT: usize = 1234;
 
-pub const KIB: usize = 1024;
-pub const MIB: usize = KIB * 1024;
-pub const GIB: usize = MIB * 1024;
+pub const DEAFULT_CHUNK_SIZE: usize = KIB;
+pub const DEFAULT_IS_ACK: bool = false;
+
 

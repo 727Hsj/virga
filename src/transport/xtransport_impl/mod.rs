@@ -28,10 +28,7 @@ use xtransport::{TransportConfig, XTransport};
 ///
 /// 直接管理 vsock 连接并使用 xtransport 进行传输。
 pub struct XTransportHandler {
-    /// vsock 连接流
     stream: Option<VsockStream>,
-
-    /// xtransport 处理器
     transport: Option<XTransport<VsockStream>>,
 }
 
@@ -46,7 +43,7 @@ impl XTransportHandler {
 
 #[async_trait]
 impl Transport for XTransportHandler {
-    async fn connect(&mut self, cid: u32, port: u32) -> Result<()> {
+    async fn connect(&mut self, cid: u32, port: u32, chunksize: u32, isack: bool) -> Result<()> {
         info!("XTransport connecting to cid={}, port={}", cid, port);
 
         // 建立 vsock 连接
@@ -55,8 +52,8 @@ impl Transport for XTransportHandler {
 
         // 初始化 xtransport
         let config = TransportConfig::default()
-            .with_max_frame_size(1024)
-            .with_ack(false);
+            .with_max_frame_size(chunksize as usize)
+            .with_ack(isack);
         let transport = XTransport::new(stream.try_clone()?, config);
 
         self.stream = Some(stream);
@@ -107,13 +104,12 @@ impl Transport for XTransportHandler {
         self.stream.is_some() && self.transport.is_some()
     }
 
-    async fn from_stream(&mut self, stream: VsockStream) -> Result<()> {
+    async fn from_stream(&mut self, stream: VsockStream, chunksize: u32, isack: bool) -> Result<()> {
         info!("XTransport initializing from existing stream");
 
-        // 初始化 xtransport
         let config = TransportConfig::default()
-            .with_max_frame_size(1024)
-            .with_ack(false);
+            .with_max_frame_size(chunksize as usize)
+            .with_ack(isack);
         let transport = XTransport::new(stream.try_clone()?, config);
 
         self.stream = Some(stream);

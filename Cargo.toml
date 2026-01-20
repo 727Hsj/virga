@@ -8,7 +8,7 @@ authors = [
 
 
 [features]
-default = ["use-yamux"]          # 默认启用 yamux 特性
+default = ["use-xtransport"]          # 默认启用 xtransport 特性
 use-yamux = ["yamux", "tokio", "tokio-util", "tokio-vsock", "futures"]
 use-xtransport = ["vsock", "xtransport"]
 

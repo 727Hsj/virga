@@ -6,33 +6,6 @@
 //! - 封装客户端的连接逻辑
 //! - 提供简洁的发送/接收接口
 //! - 管理传输协议选择
-//!
-//! # 设计思路
-//! ```text
-//! ┌────────────────────────────────────┐
-//! │ VirgeClient                        │
-//! │ - transport: Box<dyn Transport>    │
-//! │ - config: ClientConfig             │
-//! └────────────────────────────────────┘
-//!          │
-//!          ├─ connect()
-//!          ├─ disconnect()
-//!          ├─ send()
-//!          └─ recv()
-//! ```
-//!
-//! # 使用示例
-//! ```ignore
-//! let mut client = VirgeClient::with_yamux()
-//!     .config(ClientConfig { cid: 103, port: 1234, ..Default::default() })
-//!     .connect()
-//!     .await?;
-//!
-//! client.send(vec![1, 2, 3, 4, 5]).await?;
-//! let data = client.recv().await?;
-//! 
-//! client.disconnect().await?;
-//! ```
 
 use log::*;
 use crate::error::Result;
@@ -43,6 +16,8 @@ use crate::transport::Transport;
 pub struct ClientConfig {
     server_cid: u32,
     server_port: u32,
+    chunk_size: u32,
+    is_ack: bool,
 }
 
 impl Default for ClientConfig {
@@ -50,6 +25,8 @@ impl Default for ClientConfig {
         Self {
             server_cid: crate::DEFAULT_SERVER_CID as u32,
             server_port: crate::DEFAULT_SERVER_PORT as u32,
+            chunk_size: crate::DEAFULT_CHUNK_SIZE as u32,
+            is_ack: crate::DEFAULT_IS_ACK,
         }
     }
 }
@@ -106,7 +83,7 @@ impl VirgeClient {
             self.config.server_port
         );
 
-        self.transport.connect(self.config.server_cid, self.config.server_port).await?;
+        self.transport.connect(self.config.server_cid, self.config.server_port, self.config.chunk_size, self.config.is_ack).await?;
         self.connected = true;
         Ok(())
     }

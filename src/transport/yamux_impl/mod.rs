@@ -82,7 +82,6 @@ impl YamuxTransport {
                     match stream {
                         Some(Ok(stream_)) => {
                             self.yamux_stream = Some(stream_);
-                            println!("virga:: server yamux_stream");
                         }
                         Some(Err(e)) => {
                             return Err(VirgeError::TransportError(format!("Failed to open yamux stream: {}", e)));
@@ -208,7 +207,6 @@ impl Transport for YamuxTransport {
 
         let stream = self.get_or_create_stream().await?;
         let mut buf = Vec::new();
-        println!("virga:: read to end");
         stream.read_to_end(&mut buf).await
             .map_err(|e| VirgeError::Other(format!("yamux recv error: {}", e)))?;
         info!("Yamux received {} bytes", buf.len());

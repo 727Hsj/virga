@@ -5,41 +5,10 @@
 //! # 职责
 //! - ServerManager: 管理vsock监听和连接接受
 //! - VirgeServer: 单个连接的数据传输，与VirgeClient类似
-//!
-//! # 设计思路
-//! ```text
-//! ┌────────────────────────────────────┐    ┌────────────────────────────────────┐
-//! │ ServerManager                      │    │ VirgeServer                       │
-//! │ - config: ServerConfig             │    │ - transport: Box<dyn Transport>  │
-//! │ - listener: Option<Listener>       │    │ - config: ServerConfig           │
-//! │ - running: bool                    │    │ - connected: bool                 │
-//! └────────────────────────────────────┘    └────────────────────────────────────┘
-//!          │                                      │
-//!          ├─ start() -> Result<()>               ├─ send(data)
-//!          ├─ accept() -> VirgeServer             ├─ recv() -> data
-//!          └─ stop()                              └─ disconnect()
-//! ```
-//!
-//! # 使用示例
-//! ```ignore
-//! // 启动服务器管理器
-//! let mut manager = ServerManager::new(config);
-//! manager.start().await?;
-//!
-//! // 接受连接
-//! while let Ok(server) = manager.accept().await {
-//!     tokio::spawn(async move {
-//!         // 处理连接的数据收发
-//!         let data = server.recv().await?;
-//!         server.send(data).await?;
-//!         server.disconnect().await?;
-//!         Ok::<(), Box<dyn std::error::Error>>(())
-//!     });
-//! }
-//! ```
+
 
 use log::*;
-use crate::error::Result;
+use crate::error::{Result, VirgeError};
 use crate::transport::Transport;
 
 
@@ -54,9 +23,10 @@ enum Listener {
 /// 服务器配置
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
-    pub listen_cid: u32,
-    pub listen_port: u32,
-    pub max_connections: usize,
+    listen_cid: u32,
+    listen_port: u32,
+    chunk_size: u32,
+    is_ack: bool,
 }
 
 impl Default for ServerConfig {
@@ -64,7 +34,8 @@ impl Default for ServerConfig {
         Self {
             listen_cid: crate::VMADDR_CID_ANY as u32,
             listen_port: crate::DEFAULT_SERVER_PORT as u32,
-            max_connections: 100,
+            chunk_size: crate::DEAFULT_CHUNK_SIZE as u32,
+            is_ack: crate::DEFAULT_IS_ACK,
         }
     }
 }
@@ -83,7 +54,7 @@ pub struct VirgeServer {
 }
 
 impl ServerManager {
-    pub fn new(config: ServerConfig) -> Self {
+    pub const fn new(config: ServerConfig) -> Self {
         Self {
             config,
             listener: None,
@@ -108,7 +79,7 @@ impl ServerManager {
         {
             let addr = tokio_vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
             let listener = tokio_vsock::VsockListener::bind(addr)
-                .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to bind yamux listener: {}", e)))?;
+                .map_err(|e| VirgeError::ConnectionError(format!("Failed to bind yamux listener: {}", e)))?;
             return Ok(Listener::Yamux(listener));
         }
 
@@ -116,7 +87,7 @@ impl ServerManager {
         {
             let addr = vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
             let listener = vsock::VsockListener::bind(&addr)
-                .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to bind xtransport listener: {}", e)))?;
+                .map_err(|e| VirgeError::ConnectionError(format!("Failed to bind xtransport listener: {}", e)))?;
             return Ok(Listener::XTransport(listener));
         }
 
@@ -126,7 +97,7 @@ impl ServerManager {
 
     pub async fn accept(&mut self) -> Result<VirgeServer> {
         if !self.running {
-            return Err(crate::error::VirgeError::Other(
+            return Err(VirgeError::Other(
                 "ServerManager not running".to_string(),
             ));
         }
@@ -136,7 +107,7 @@ impl ServerManager {
                 #[cfg(feature = "use-yamux")]
                 Listener::Yamux(yamux_listener) => {
                     let (stream, addr) = yamux_listener.accept().await
-                        .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to accept yamux connection: {}", e)))?;
+                        .map_err(|e| VirgeError::ConnectionError(format!("Failed to accept yamux connection: {}", e)))?;
                     info!("Accepted yamux connection from {:?}", addr);
 
                     // 创建 YamuxTransport 实例并从流初始化
@@ -148,12 +119,12 @@ impl ServerManager {
                 #[cfg(feature = "use-xtransport")]
                 Listener::XTransport(xtransport_listener) => {
                     let (stream, addr) = xtransport_listener.accept()
-                        .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to accept xtransport connection: {}", e)))?;
+                        .map_err(|e| VirgeError::ConnectionError(format!("Failed to accept xtransport connection: {}", e)))?;
                     info!("Accepted xtransport connection from {:?}", addr);
 
                     // 创建 XTransportHandler 实例并从流初始化
                     let mut transport = Box::new(crate::transport::XTransportHandler::new());
-                    transport.from_stream(stream).await?;
+                    transport.from_stream(stream, self.config.chunk_size, self.config.is_ack).await?;
                     transport as Box<dyn Transport>
                 }
             };
@@ -163,7 +134,7 @@ impl ServerManager {
                 connected: true,
             })
         } else {
-            Err(crate::error::VirgeError::Other("Listener not initialized".to_string()))
+            Err(VirgeError::Other("Listener not initialized".to_string()))
         }
     }
 
@@ -185,22 +156,20 @@ impl VirgeServer {
     /// 发送数据
     pub async fn send(&mut self, data: Vec<u8>) -> Result<()> {
         if !self.connected {
-            return Err(crate::error::VirgeError::TransportError(
+            return Err(VirgeError::TransportError(
                 "Server not connected".to_string(),
             ));
         }
-
         self.transport.send(data).await
     }
 
     /// 接收数据
     pub async fn recv(&mut self) -> Result<Vec<u8>> {
         if !self.connected {
-            return Err(crate::error::VirgeError::TransportError(
+            return Err(VirgeError::TransportError(
                 "Server not connected".to_string(),
             ));
         }
-        println!("virga::want to recv");
         self.transport.recv().await
     }
 

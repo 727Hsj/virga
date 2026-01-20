@@ -8,23 +8,6 @@
 //! - 直接管理 vsock 连接和协议逻辑
 //! - 提供开箱即用的 connect/disconnect/send/recv 接口
 //!
-//! # 设计思路
-//! ```text
-//! ┌─────────────────────────────────────┐
-//! │ Transport Trait                     │
-//! │ - connect(cid, port)               │
-//! │ - disconnect()                     │
-//! │ - send(data)                       │
-//! │ - recv() -> Vec<u8>                │
-//! │ - is_connected()                   │
-//! └─────────────────┬───────────────────┘
-//!                   │
-//!       ┌───────────┼───────────┐
-//!       │           │           │
-//!       ▼           ▼           ▼
-//!   YamuxImpl   XTransportImpl   其他
-//!   (tokio-vsock)  (vsock)
-//! ```
 
 #[cfg(feature = "use-yamux")]
 pub mod yamux_impl;
@@ -45,7 +28,7 @@ pub trait Transport: Send + Sync {
     ///
     /// # Returns
     /// 连接成功返回 Ok，否则返回错误
-    async fn connect(&mut self, cid: u32, port: u32) -> Result<()>;
+    async fn connect(&mut self, cid: u32, port: u32, chunksize: u32, isack: bool) -> Result<()>;
 
     /// 从现有 vsock 流初始化传输协议（服务器模式）
     ///
@@ -60,7 +43,7 @@ pub trait Transport: Send + Sync {
     }
 
     #[cfg(feature = "use-xtransport")]
-    async fn from_stream(&mut self, _stream: vsock::VsockStream) -> Result<()> {
+    async fn from_stream(&mut self, _stream: vsock::VsockStream, _chunksize: u32, _isack: bool) -> Result<()> {
         Err(crate::error::VirgeError::Other("XTransport from_stream not implemented".to_string()))
     }
 
