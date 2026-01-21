@@ -7,9 +7,9 @@
 //! - 提供简洁的发送/接收接口
 //! - 管理传输协议选择
 
-use log::*;
 use crate::error::Result;
 use crate::transport::Transport;
+use log::*;
 
 /// 客户端配置
 #[derive(Clone, Debug)]
@@ -32,12 +32,12 @@ impl Default for ClientConfig {
 }
 
 impl ClientConfig {
-    pub fn new(cid: u32, port: u32, chunk: u32, isack: bool) -> Self{
-        Self { 
-            server_cid: cid, 
-            server_port: port, 
-            chunk_size: chunk, 
-            is_ack: isack, 
+    pub fn new(cid: u32, port: u32, chunk: u32, isack: bool) -> Self {
+        Self {
+            server_cid: cid,
+            server_port: port,
+            chunk_size: chunk,
+            is_ack: isack,
         }
     }
 }
@@ -48,7 +48,6 @@ pub struct VirgeClient {
     config: ClientConfig,
     connected: bool,
 }
-
 
 impl VirgeClient {
     pub fn new(config: ClientConfig) -> Self {
@@ -80,20 +79,26 @@ impl VirgeClient {
             connected: false,
         }
     }
-    
+
     /// 建立连接
     pub async fn connect(&mut self) -> Result<()> {
         info!(
             "VirgeClient connecting to cid={}, port={}",
-            self.config.server_cid,
-            self.config.server_port
+            self.config.server_cid, self.config.server_port
         );
 
-        self.transport.connect(self.config.server_cid, self.config.server_port, self.config.chunk_size, self.config.is_ack).await?;
+        self.transport
+            .connect(
+                self.config.server_cid,
+                self.config.server_port,
+                self.config.chunk_size,
+                self.config.is_ack,
+            )
+            .await?;
         self.connected = true;
         Ok(())
     }
-    
+
     /// 断开连接
     pub async fn disconnect(&mut self) -> Result<()> {
         info!("VirgeClient disconnecting");
@@ -101,7 +106,7 @@ impl VirgeClient {
         self.connected = false;
         Ok(())
     }
-    
+
     /// 发送数据
     pub async fn send(&mut self, data: Vec<u8>) -> Result<()> {
         if !self.connected {
@@ -109,11 +114,11 @@ impl VirgeClient {
                 "Client not connected".to_string(),
             ));
         }
-        
+
         self.transport.send(data).await?;
         Ok(())
     }
-    
+
     /// 接收数据
     pub async fn recv(&mut self) -> Result<Vec<u8>> {
         if !self.connected {
@@ -121,10 +126,10 @@ impl VirgeClient {
                 "Client not connected".to_string(),
             ));
         }
-        
+
         self.transport.recv().await
     }
-    
+
     /// 检查连接状态
     pub fn is_connected(&self) -> bool {
         self.connected && self.transport.is_connected()

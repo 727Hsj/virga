@@ -9,10 +9,10 @@
 //! - 提供开箱即用的 connect/disconnect/send/recv 接口
 //!
 
-#[cfg(feature = "use-yamux")]
-pub mod yamux_impl;
 #[cfg(feature = "use-xtransport")]
 pub mod xtransport_impl;
+#[cfg(feature = "use-yamux")]
+pub mod yamux_impl;
 
 use crate::error::Result;
 use async_trait::async_trait;
@@ -39,12 +39,21 @@ pub trait Transport: Send + Sync {
     /// 初始化成功返回 Ok，否则返回错误
     #[cfg(feature = "use-yamux")]
     async fn from_tokio_stream(&mut self, _stream: tokio_vsock::VsockStream) -> Result<()> {
-        Err(crate::error::VirgeError::Other("Yamux from_tokio_stream not implemented".to_string()))
+        Err(crate::error::VirgeError::Other(
+            "Yamux from_tokio_stream not implemented".to_string(),
+        ))
     }
 
     #[cfg(feature = "use-xtransport")]
-    async fn from_stream(&mut self, _stream: vsock::VsockStream, _chunksize: u32, _isack: bool) -> Result<()> {
-        Err(crate::error::VirgeError::Other("XTransport from_stream not implemented".to_string()))
+    async fn from_stream(
+        &mut self,
+        _stream: vsock::VsockStream,
+        _chunksize: u32,
+        _isack: bool,
+    ) -> Result<()> {
+        Err(crate::error::VirgeError::Other(
+            "XTransport from_stream not implemented".to_string(),
+        ))
     }
 
     /// 断开连接并清理资源
@@ -70,7 +79,7 @@ pub trait Transport: Send + Sync {
 }
 
 // 具体实现模块
-#[cfg(feature = "use-yamux")]
-pub use yamux_impl::YamuxTransport;
 #[cfg(feature = "use-xtransport")]
 pub use xtransport_impl::XTransportHandler;
+#[cfg(feature = "use-yamux")]
+pub use yamux_impl::YamuxTransport;

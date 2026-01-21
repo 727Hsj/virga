@@ -6,14 +6,13 @@
 //! - 针对 vsock 优化的传输协议
 //! - 轻量级设计
 
-use log::*;
 use crate::error::{Result, VirgeError};
 use crate::transport::Transport;
 use async_trait::async_trait;
+use log::*;
 
 use vsock::{VsockAddr, VsockStream};
 use xtransport::{TransportConfig, XTransport};
-
 
 /// XTransport 传输协议实现
 ///
@@ -55,12 +54,12 @@ impl Transport for XTransportHandler {
 
     async fn disconnect(&mut self) -> Result<()> {
         info!("XTransport disconnecting");
-        
+
         self.transport = None;
         if let Some(stream) = &self.stream {
-            stream.shutdown(std::net::Shutdown::Both).map_err(
-                |e| VirgeError::ConnectionError(format!("Failed to disconnect vsock: {}", e))
-            )?;
+            stream.shutdown(std::net::Shutdown::Both).map_err(|e| {
+                VirgeError::ConnectionError(format!("Failed to disconnect vsock: {}", e))
+            })?;
         }
 
         info!("XTransport disconnected");
@@ -68,10 +67,13 @@ impl Transport for XTransportHandler {
     }
 
     async fn send(&mut self, data: Vec<u8>) -> Result<()> {
-        let transport = self.transport.as_mut()
+        let transport = self
+            .transport
+            .as_mut()
             .ok_or_else(|| VirgeError::TransportError("XTransport not connected".to_string()))?;
 
-        transport.send_message(&data)
+        transport
+            .send_message(&data)
             .map_err(|e| VirgeError::Other(format!("XTransport send error: {}", e)))?;
 
         info!("XTransport sent {} bytes", data.len());
@@ -79,10 +81,13 @@ impl Transport for XTransportHandler {
     }
 
     async fn recv(&mut self) -> Result<Vec<u8>> {
-        let transport = self.transport.as_mut()
+        let transport = self
+            .transport
+            .as_mut()
             .ok_or_else(|| VirgeError::TransportError("XTransport not connected".to_string()))?;
 
-        let data = transport.recv_message()
+        let data = transport
+            .recv_message()
             .map_err(|e| VirgeError::Other(format!("XTransport recv error: {}", e)))?;
 
         info!("XTransport received {} bytes", data.len());
@@ -93,7 +98,12 @@ impl Transport for XTransportHandler {
         self.stream.is_some() && self.transport.is_some()
     }
 
-    async fn from_stream(&mut self, stream: VsockStream, chunksize: u32, isack: bool) -> Result<()> {
+    async fn from_stream(
+        &mut self,
+        stream: VsockStream,
+        chunksize: u32,
+        isack: bool,
+    ) -> Result<()> {
         info!("XTransport initializing from existing stream");
 
         let config = TransportConfig::default()

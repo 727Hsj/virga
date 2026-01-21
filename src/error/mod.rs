@@ -15,16 +15,16 @@ use std::fmt;
 pub enum VirgeError {
     /// 连接层错误
     ConnectionError(String),
-    
+
     /// 传输层错误
     TransportError(String),
-    
+
     /// 配置错误
     ConfigError(String),
-    
+
     /// IO 错误
     IoError(std::io::Error),
-    
+
     /// 其他错误
     Other(String),
 }

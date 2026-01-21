@@ -6,11 +6,9 @@
 //! - ServerManager: 管理vsock监听和连接接受
 //! - VirgeServer: 单个连接的数据传输，与VirgeClient类似
 
-
-use log::*;
 use crate::error::{Result, VirgeError};
 use crate::transport::Transport;
-
+use log::*;
 
 /// 监听器枚举
 enum Listener {
@@ -41,18 +39,15 @@ impl Default for ServerConfig {
 }
 
 impl ServerConfig {
-    pub fn new(cid: u32, port: u32, chunk: u32, isack: bool) -> Self{
-        Self { 
-            listen_cid: cid, 
-            listen_port: port, 
-            chunk_size: chunk, 
-            is_ack: isack, 
+    pub fn new(cid: u32, port: u32, chunk: u32, isack: bool) -> Self {
+        Self {
+            listen_cid: cid,
+            listen_port: port,
+            chunk_size: chunk,
+            is_ack: isack,
         }
     }
 }
-
-
-
 
 /// 服务器管理器：负责管理vsock监听和连接接受，为每个连接生成VirgeServer实例
 pub struct ServerManager {
@@ -79,8 +74,7 @@ impl ServerManager {
     pub async fn start(&mut self) -> Result<()> {
         info!(
             "ServerManager starting on cid={}, port={}",
-            self.config.listen_cid,
-            self.config.listen_port
+            self.config.listen_cid, self.config.listen_port
         );
 
         self.listener = Some(self.create_listener().await?);
@@ -92,16 +86,18 @@ impl ServerManager {
         #[cfg(feature = "use-yamux")]
         {
             let addr = tokio_vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
-            let listener = tokio_vsock::VsockListener::bind(addr)
-                .map_err(|e| VirgeError::ConnectionError(format!("Failed to bind yamux listener: {}", e)))?;
+            let listener = tokio_vsock::VsockListener::bind(addr).map_err(|e| {
+                VirgeError::ConnectionError(format!("Failed to bind yamux listener: {}", e))
+            })?;
             return Ok(Listener::Yamux(listener));
         }
 
         #[cfg(feature = "use-xtransport")]
         {
             let addr = vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
-            let listener = vsock::VsockListener::bind(&addr)
-                .map_err(|e| VirgeError::ConnectionError(format!("Failed to bind xtransport listener: {}", e)))?;
+            let listener = vsock::VsockListener::bind(&addr).map_err(|e| {
+                VirgeError::ConnectionError(format!("Failed to bind xtransport listener: {}", e))
+            })?;
             return Ok(Listener::XTransport(listener));
         }
 
@@ -111,17 +107,19 @@ impl ServerManager {
 
     pub async fn accept(&mut self) -> Result<VirgeServer> {
         if !self.running {
-            return Err(VirgeError::Other(
-                "ServerManager not running".to_string(),
-            ));
+            return Err(VirgeError::Other("ServerManager not running".to_string()));
         }
 
         if let Some(ref mut listener) = self.listener {
             let transport: Box<dyn Transport> = match listener {
                 #[cfg(feature = "use-yamux")]
                 Listener::Yamux(yamux_listener) => {
-                    let (stream, addr) = yamux_listener.accept().await
-                        .map_err(|e| VirgeError::ConnectionError(format!("Failed to accept yamux connection: {}", e)))?;
+                    let (stream, addr) = yamux_listener.accept().await.map_err(|e| {
+                        VirgeError::ConnectionError(format!(
+                            "Failed to accept yamux connection: {}",
+                            e
+                        ))
+                    })?;
                     info!("Accepted yamux connection from {:?}", addr);
 
                     // 创建 YamuxTransport 实例并从流初始化
@@ -132,13 +130,19 @@ impl ServerManager {
 
                 #[cfg(feature = "use-xtransport")]
                 Listener::XTransport(xtransport_listener) => {
-                    let (stream, addr) = xtransport_listener.accept()
-                        .map_err(|e| VirgeError::ConnectionError(format!("Failed to accept xtransport connection: {}", e)))?;
+                    let (stream, addr) = xtransport_listener.accept().map_err(|e| {
+                        VirgeError::ConnectionError(format!(
+                            "Failed to accept xtransport connection: {}",
+                            e
+                        ))
+                    })?;
                     info!("Accepted xtransport connection from {:?}", addr);
 
                     // 创建 XTransportHandler 实例并从流初始化
                     let mut transport = Box::new(crate::transport::XTransportHandler::new());
-                    transport.from_stream(stream, self.config.chunk_size, self.config.is_ack).await?;
+                    transport
+                        .from_stream(stream, self.config.chunk_size, self.config.is_ack)
+                        .await?;
                     transport as Box<dyn Transport>
                 }
             };
@@ -163,7 +167,6 @@ impl ServerManager {
     pub fn is_running(&self) -> bool {
         self.running
     }
-
 }
 
 impl VirgeServer {

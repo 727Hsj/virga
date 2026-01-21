@@ -19,18 +19,17 @@
 use crate::error::{Result, VirgeError};
 use crate::transport::Transport;
 use async_trait::async_trait;
-use futures::future::poll_fn;
 use futures::AsyncReadExt;
 use futures::AsyncWriteExt;
+use futures::future::poll_fn;
+use log::*;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio_util::compat::{TokioAsyncReadCompatExt, Compat};
-use tokio_vsock::{VsockStream, VsockAddr};
-use log::*;
+use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
+use tokio_vsock::{VsockAddr, VsockStream};
 
-use yamux::{Config, Connection, Mode};
 use yamux::Stream;
-
+use yamux::{Config, Connection, Mode};
 
 /// Yamux 传输协议实现
 ///
@@ -77,25 +76,40 @@ impl YamuxTransport {
                             self.yamux_stream = Some(yamux_stream);
                         }
                         Some(Err(e)) => {
-                            return Err(VirgeError::TransportError(format!("Failed to open yamux stream: {}", e)));
+                            return Err(VirgeError::TransportError(format!(
+                                "Failed to open yamux stream: {}",
+                                e
+                            )));
                         }
                         None => {
-                            return Err(VirgeError::TransportError("Failed to open yamux stream".to_string()));
+                            return Err(VirgeError::TransportError(
+                                "Failed to open yamux stream".to_string(),
+                            ));
                         }
                     }
                 } else {
-                    return Err(VirgeError::TransportError("Yamux not initialized".to_string()));
+                    return Err(VirgeError::TransportError(
+                        "Yamux not initialized".to_string(),
+                    ));
                 }
             } else {
                 // 客户端模式：创建出站流
                 if let Some(connection_arc) = self.connection.clone() {
                     let mut conn_guard = connection_arc.lock().await;
-                    let stream = poll_fn(|cx| conn_guard.poll_new_outbound(cx)).await
-                        .map_err(|e| VirgeError::TransportError(format!("Failed to open yamux stream: {}", e)))?;
+                    let stream = poll_fn(|cx| conn_guard.poll_new_outbound(cx))
+                        .await
+                        .map_err(|e| {
+                            VirgeError::TransportError(format!(
+                                "Failed to open yamux stream: {}",
+                                e
+                            ))
+                        })?;
                     info!("Client created outbound stream: {:?}", stream.id());
                     self.yamux_stream = Some(stream);
                 } else {
-                    return Err(VirgeError::TransportError("Yamux not initialized".to_string()));
+                    return Err(VirgeError::TransportError(
+                        "Yamux not initialized".to_string(),
+                    ));
                 }
             }
         }
@@ -107,23 +121,22 @@ impl YamuxTransport {
     fn start_driver(&mut self) {
         if let Some(conn_arc) = self.connection.clone() {
             let driver_handle = tokio::spawn(async move {
-                    debug!("Starting yamux connection driver");
-                    loop {
-                        let mut conn_guard = conn_arc.lock().await;
-                        match poll_fn(|cx| conn_guard.poll_next_inbound(cx)).await {
-                            Some(Ok(_)) => {
-                            }
-                            Some(Err(e)) => {
-                                debug!("Yamux connection error: {}", e);
-                                break;
-                            }
-                            None => {
-                                debug!("Yamux connection closed");
-                                break;
-                            }
+                debug!("Starting yamux connection driver");
+                loop {
+                    let mut conn_guard = conn_arc.lock().await;
+                    match poll_fn(|cx| conn_guard.poll_next_inbound(cx)).await {
+                        Some(Ok(_)) => {}
+                        Some(Err(e)) => {
+                            debug!("Yamux connection error: {}", e);
+                            break;
                         }
-                        drop(conn_guard);
+                        None => {
+                            debug!("Yamux connection closed");
+                            break;
+                        }
                     }
+                    drop(conn_guard);
+                }
                 info!("Yamux connection driver stopped");
             });
 
@@ -150,7 +163,7 @@ impl Transport for YamuxTransport {
         self.start_driver();
         // 创建yamux_stream
         let _ = self.get_or_create_stream().await?;
-        
+
         info!("Yamux transport connected successfully");
         Ok(())
     }
@@ -179,7 +192,9 @@ impl Transport for YamuxTransport {
         }
 
         let stream = self.get_or_create_stream().await?;
-        stream.write_all(&data).await
+        stream
+            .write_all(&data)
+            .await
             .map_err(|e| VirgeError::Other(format!("yamux send error: {}", e)))?;
         stream.close().await?;
 
@@ -195,7 +210,9 @@ impl Transport for YamuxTransport {
         }
         let stream = self.get_or_create_stream().await?;
         let mut buf = Vec::new();
-        stream.read_to_end(&mut buf).await
+        stream
+            .read_to_end(&mut buf)
+            .await
             .map_err(|e| VirgeError::Other(format!("yamux recv error: {}", e)))?;
         info!("Yamux received {} bytes", buf.len());
         Ok(buf)
@@ -211,7 +228,7 @@ impl Transport for YamuxTransport {
         let connection = Connection::new(stream.compat(), config, Mode::Server);
 
         self.connection = Some(Arc::new(Mutex::new(connection)));
-        
+
         // 启动驱动程序来处理连接生命周期
         self.start_driver();
         // 创建yamux_stream
