@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("len date = {}", actual_data_len_);
     
     // 断开连接
-    client.disconnect()?;
+    //client.disconnect()?;
 
     Ok(())
 }

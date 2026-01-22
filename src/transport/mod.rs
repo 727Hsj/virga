@@ -11,8 +11,15 @@
 
 #[cfg(feature = "use-xtransport")]
 mod xtransport_impl;
+#[cfg(feature = "use-xtransport")]
+pub use xtransport_impl::XTransportHandler;
+
 #[cfg(feature = "use-yamux")]
 mod yamux_impl;
+#[cfg(feature = "use-yamux")]
+pub use yamux_impl::YamuxTransportHandler;
+
+
 
 // use crate::error::Result;
 // use async_trait::async_trait;
@@ -78,7 +85,5 @@ mod yamux_impl;
 //     fn is_connected(&self) -> bool;
 // }
 
-// 具体实现模块
-#[cfg(feature = "use-xtransport")]
-pub use xtransport::transport;
-pub use xtransport_impl::XTransportHandler;
+
+

@@ -13,10 +13,16 @@ pub use server_sync::VirgeServer;
 #[cfg(feature = "use-xtransport")]
 pub use crate::transport::XTransportHandler;
 
+#[cfg(feature = "use-yamux")]
+pub mod server_async;
+#[cfg(feature = "use-yamux")]
+pub use server_async::VirgeServer;
+#[cfg(feature = "use-yamux")]
+pub use crate::transport::YamuxTransportHandler;
+#[cfg(feature = "use-yamux")]
+use futures::executor::block_on;
 
 
-// use crate::error::{Result, VirgeError};
-// use crate::transport::Transport;
 use log::*;
 use std::io::{Error, ErrorKind, Result};
 
@@ -25,6 +31,8 @@ use std::io::{Error, ErrorKind, Result};
 enum Listener {
     #[cfg(feature = "use-xtransport")]
     XTransport(vsock::VsockListener),
+    #[cfg(feature = "use-yamux")]
+    Yamux(tokio_vsock::VsockListener),
 }
 
 /// 服务器配置
@@ -89,9 +97,7 @@ impl ServerManager {
         #[cfg(feature = "use-yamux")]
         {
             let addr = tokio_vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
-            let listener = tokio_vsock::VsockListener::bind(addr).map_err(|e| {
-                VirgeError::ConnectionError(format!("Failed to bind yamux listener: {}", e))
-            })?;
+            let listener = tokio_vsock::VsockListener::bind(addr)?;
             return Ok(Listener::Yamux(listener));
         }
 
@@ -110,38 +116,37 @@ impl ServerManager {
                 format!("ServerManager not running"),
             ));
         }
-
-        if let Some(ref mut listener) = self.listener {
-            let transport = match listener {
-                #[cfg(feature = "use-xtransport")]
-                Listener::XTransport(xtransport_listener) => {
-                    let (stream, addr) = xtransport_listener.accept()?;
-                    info!("Accepted xtransport connection from {:?}", addr);
-
-                    // 创建 XTransportHandler 实例并从流初始化
-                    let mut transport = XTransportHandler::new();
-                    transport
-                        .from_stream(stream, self.config.chunk_size, self.config.is_ack)?;
-                    transport
-                }
-
-                #[cfg(feature = "use-yamux")]
-                Listener::Yamux(yamux_listener) => {
-                    let (stream, addr) = yamux_listener.accept().await
-                        .map_err(|e| VirgeError::ConnectionError(format!("Failed to accept yamux connection: {}", e)))?;
-                    info!("Accepted yamux connection from {:?}", addr);
-
-                    // 创建 YamuxTransport 实例并从流初始化
-                    let mut transport = Box::new(crate::transport::YamuxTransport::new_server());
-                    transport.from_tokio_stream(stream).await?;
-                    transport
-                }
-            };
-
-            Ok(VirgeServer::new(transport, true))
-        } else {
-            Err(Error::other(format!("Listener not initialized")))
+        if let None = self.listener {
+            return Err(Error::other(format!("Listener not initialized")));
         }
+
+        let transport = match self.listener.unwrap() {
+            #[cfg(feature = "use-xtransport")]
+            Listener::XTransport(xtransport_listener) => {
+                let (stream, addr) = xtransport_listener.accept()?;
+                info!("Accepted xtransport connection from {:?}", addr);
+
+                // 创建 XTransportHandler 实例并从流初始化
+                let mut transport = XTransportHandler::new();
+                transport
+                    .from_stream(stream, self.config.chunk_size, self.config.is_ack)?;
+                transport
+            },
+            #[cfg(feature = "use-yamux")]
+            Listener::Yamux(yamux_listener) => {
+                let (stream, addr) = block_on(async{
+                    yamux_listener.accept().await?
+                });
+                info!("Accepted yamux connection from {:?}", addr);
+                // 创建 YamuxTransport 实例并从流初始化
+                let mut transport = YamuxTransportHandler::new(yamux::Mode::Server);
+                transport.from_tokio_stream(stream)?;
+                transport
+            },
+        };
+
+        Ok(VirgeServer::new(transport, true))
+
     }
 
     /// 停止服务器

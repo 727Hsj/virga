@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         server.write_all(&data)?;
         
         // 断开连接
-        server.disconnect()?;
+        // server.disconnect()?;
     }
 
     Ok(())

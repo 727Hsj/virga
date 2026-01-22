@@ -48,7 +48,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
  "windows-sys",
- "windows-sys",
 ]
 
 [[package]]
@@ -60,20 +59,6 @@ dependencies = [
  "anstyle",
  "once_cell_polyfill",
  "windows-sys",
-<<<<<<< HEAD
-=======
-]
-
-[[package]]
-name = "async-trait"
-version = "0.1.89"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
->>>>>>> fix example when use the xtransport feature
 ]
 
 [[package]]
@@ -340,7 +325,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 [[package]]
 name = "virga"
 version = "0.1.0"
-source = "git+https://github.com/727Hsj/virga.git?branch=dev#9c271751d6b10e63132044f2ffb8f8e8fd6ccf1b"
+source = "git+https://github.com/727Hsj/virga.git?branch=dev#8a14110a709c75dcaf0b9b77920ca9af2ec14a82"
 dependencies = [
  "env_logger",
  "log",

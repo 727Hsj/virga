@@ -77,8 +77,7 @@ pub mod transport;
 pub mod client;
 pub mod server;
 
-pub use client::ClientConfig;
-pub use client::client_sync::VirgeClient;
+pub use client::{ClientConfig, VirgeClient};
 pub use server::{ServerConfig, ServerManager, VirgeServer};
 
 pub const KIB: usize = 1024;
