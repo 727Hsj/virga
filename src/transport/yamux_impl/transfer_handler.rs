@@ -1,12 +1,15 @@
 
 use std::thread;
 use std::thread::JoinHandle;
+use std::sync::atomic::{AtomicBool, Ordering};
 use crate::error::{Result, VirgeError};
 use futures::AsyncReadExt;
 use futures::AsyncWriteExt;
 use futures::future::poll_fn;
 use futures::executor::block_on;
 use log::*;
+use tokio_util::compat::Compat;
+use tokio_util::compat::TokioAsyncReadCompatExt;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_vsock::{VsockAddr, VsockStream};
@@ -21,8 +24,9 @@ use yamux::{Config, Connection, Mode};
 /// Yamux需要持续的驱动程序来处理入站流和连接生命周期。
 pub struct YamuxTransportHandler {
     yamux_stream: Option<Stream>,
-    connection: Option<Arc<Mutex<Connection<VsockStream>>>>,
+    connection: Option<Arc<Mutex<Connection<Compat<VsockStream>>>>>,
     driver_handle: Option<JoinHandle<()>>,
+    driver_stop_flag: Arc<AtomicBool>,
     mode: Mode,
 }
 
@@ -33,6 +37,7 @@ impl YamuxTransportHandler {
             connection: None,
             yamux_stream: None,
             driver_handle: None,
+            driver_stop_flag: Arc::new(AtomicBool::new(false)),
             mode,
         }
     }
@@ -101,15 +106,22 @@ impl YamuxTransportHandler {
     /// yamux 连接驱动程序
     ///
     /// 处理连接事件（需要在后台线程运行）
-    fn start_driver(&self) -> Result<()> {
-        let conn_clone = self.connection.clone();
-        if conn_clone.is_none(){
+    fn start_driver(&mut self) -> Result<()> {
+        if self.connection.is_none(){
             return Err(VirgeError::ConnectionError("connection is none".to_string()));
         }
 
+        let conn_clone = self.connection.clone().unwrap();
+        let stop_flag_clone = Arc::clone(&self.driver_stop_flag);
         let driver_handle: JoinHandle<()> = thread::spawn(move || {
             debug!("Starting yamux connection driver");
             loop {
+                // 检查停止标志
+                if stop_flag_clone.load(Ordering::Relaxed) {
+                    debug!("Yamux connection driver received stop signal");
+                    break;
+                }
+
                 let should_break = block_on(async {
                     let mut conn_guard = conn_clone.lock().await;
                     match poll_fn(|cx| conn_guard.poll_next_inbound(cx)).await {
@@ -124,12 +136,12 @@ impl YamuxTransportHandler {
                         }
                     }
                 });
-                
+
                 if should_break {
                     break;
                 }
             }
-            
+
             info!("Yamux connection driver stopped");
         });
 
@@ -152,11 +164,11 @@ impl YamuxTransportHandler {
 
         // 初始化 yamux
         let config = Config::default();
-        let connection = Connection::new(stream, config, self.mode);
+        let connection = Connection::new(stream.compat(), config, self.mode);
         self.connection = Some(Arc::new(Mutex::new(connection)));
 
         // 启动驱动程序来处理连接生命周期
-        self.start_driver();
+        let _ = self.start_driver();
 
         // 创建yamux_stream
         let _ = self.get_or_create_stream()?;
@@ -168,9 +180,12 @@ impl YamuxTransportHandler {
     pub fn disconnect(&mut self) -> Result<()> {
         info!("Yamux transport disconnecting");
 
-        // 清理驱动程序
+        // 设置停止标志，让驱动线程退出
+        self.driver_stop_flag.store(true, Ordering::Relaxed);
+
+        // 等待驱动线程结束
         if let Some(handle) = self.driver_handle.take() {
-            handle.abort();
+            let _ = handle.join();
         }
 
         // 清理资源
@@ -209,7 +224,8 @@ impl YamuxTransportHandler {
         let mut buf = Vec::new();
         block_on(async {
             stream.read_to_end(&mut buf).await.map_err(|e| VirgeError::Other(format!("yamux recv error: {}", e)))?;
-        });
+            Ok::<_, std::io::Error>(())
+        })?;
         info!("Yamux received {} bytes", buf.len());
         Ok(buf)
     }
@@ -221,12 +237,12 @@ impl YamuxTransportHandler {
     pub fn from_tokio_stream(&mut self, stream: VsockStream) -> Result<()> {
         // 初始化 yamux
         let config = Config::default();
-        let connection = Connection::new(stream, config, self.mode);
+        let connection = Connection::new(stream.compat(), config, self.mode);
 
         self.connection = Some(Arc::new(Mutex::new(connection)));
 
         // 启动驱动程序来处理连接生命周期
-        self.start_driver();
+        let _ = self.start_driver();
         // 创建yamux_stream
         let _ = self.get_or_create_stream()?;
 

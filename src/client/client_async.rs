@@ -81,3 +81,52 @@ impl VirgeClient {
     }
 }
 
+
+impl Read for VirgeClient {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        if !self.connected {
+            return Err(Error::new(
+                ErrorKind::NotConnected,
+                "Client not connected",
+            ));
+        }
+
+        match self.transport_handler.recv() {
+            Ok(data) => {
+                let len = std::cmp::min(data.len(), buf.len());
+                buf[..len].copy_from_slice(&data[..len]);
+                Ok(len)
+            }
+            Err(e) => Err(Error::new(
+                ErrorKind::Other,
+                format!("Read error: {}", e),
+            )),
+        }
+    }
+
+}
+
+impl Write for VirgeClient {
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        if !self.connected {
+            return Err(Error::new(
+                ErrorKind::NotConnected,
+                "Client not connected",
+            ));
+        }
+
+        match self.transport_handler.send(buf) {
+            Ok(len) => Ok(len),
+            Err(e) => Err(Error::new(
+                ErrorKind::Other,
+                format!("Write error: {}", e),
+            )),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+
