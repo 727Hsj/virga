@@ -6,7 +6,7 @@ use crate::error::{Result, VirgeError};
 use futures::AsyncReadExt;
 use futures::AsyncWriteExt;
 use futures::future::poll_fn;
-use futures::executor::block_on;
+//use futures::executor::block_on;
 use log::*;
 use tokio_util::compat::Compat;
 use tokio_util::compat::TokioAsyncReadCompatExt;
@@ -16,6 +16,15 @@ use tokio_vsock::{VsockAddr, VsockStream};
 
 use yamux::Stream;
 use yamux::{Config, Connection, Mode};
+
+use std::sync::OnceLock;
+use tokio::runtime::Runtime;
+static TOKIO_RUNTIME: OnceLock<Runtime> = OnceLock::new();
+fn get_tokio_runtime() -> &'static Runtime {
+    TOKIO_RUNTIME.get_or_init(|| {
+        Runtime::new().expect("Failed to create tokio runtime")
+    })
+}
 
 
 /// Yamux 传输协议实现
@@ -58,7 +67,7 @@ impl YamuxTransportHandler {
 
         match self.mode {
             Mode::Client => {
-                let stream = block_on( async {
+                let stream = get_tokio_runtime().block_on( async {
                     let mut conn_guard = conn_clone.lock().await;
                     poll_fn(|cx| conn_guard.poll_new_outbound(cx)).await
                 });
@@ -75,7 +84,7 @@ impl YamuxTransportHandler {
                 }
             }
             Mode::Server => {
-                let stream = block_on( async {
+                let stream = get_tokio_runtime().block_on( async {
                     let mut conn_guard = conn_clone.lock().await;
                     poll_fn(|cx| conn_guard.poll_next_inbound(cx)).await
                 });
@@ -122,7 +131,7 @@ impl YamuxTransportHandler {
                     break;
                 }
 
-                let should_break = block_on(async {
+                let should_break = get_tokio_runtime().block_on(async {
                     let mut conn_guard = conn_clone.lock().await;
                     match poll_fn(|cx| conn_guard.poll_next_inbound(cx)).await {
                         Some(Ok(_)) => false,  // 继续循环
@@ -157,8 +166,8 @@ impl YamuxTransportHandler {
     pub fn connect(&mut self, cid: u32, port: u32, _: u32, _: bool) -> Result<()> {
         info!("Yamux transport connecting to cid={}, port={}", cid, port);
         
-        // 使用 block_on 包装异步连接
-        let stream = block_on(async {
+        // 使用全局运行时
+        let stream = get_tokio_runtime().block_on(async {
             VsockStream::connect(VsockAddr::new(cid, port)).await
         }).map_err(|e| VirgeError::ConnectionError(format!("Failed to connect vsock: {}", e)))?;
 
@@ -202,11 +211,12 @@ impl YamuxTransportHandler {
                 "Yamux transport not connected about send".to_string(),
             ));
         }
+        println!("send len is {}", data.len());
 
         let stream = self.get_or_create_stream()?;
-        block_on( async {
+        get_tokio_runtime().block_on( async {
             stream.write_all(&data).await.map_err(|e| VirgeError::Other(format!("yamux send error: {}", e)))?;
-            stream.close().await?;
+            // stream.close().await?;
             Ok::<_, std::io::Error>(())
         })?;
 
@@ -222,7 +232,7 @@ impl YamuxTransportHandler {
         }
         let stream = self.get_or_create_stream()?;
         let mut buf = Vec::new();
-        block_on(async {
+        get_tokio_runtime().block_on(async {
             stream.read_to_end(&mut buf).await.map_err(|e| VirgeError::Other(format!("yamux recv error: {}", e)))?;
             Ok::<_, std::io::Error>(())
         })?;

@@ -21,7 +21,19 @@ pub use server_async::VirgeServer;
 pub use crate::transport::YamuxTransportHandler;
 #[cfg(feature = "use-yamux")]
 use futures::executor::block_on;
-
+#[cfg(feature = "use-yamux")]
+use std::sync::OnceLock;
+#[cfg(feature = "use-yamux")]
+use tokio::runtime::Runtime;
+// 全局tokio运行时，供yamux功能使用
+#[cfg(feature = "use-yamux")]
+static TOKIO_RUNTIME: OnceLock<Runtime> = OnceLock::new();
+#[cfg(feature = "use-yamux")]
+fn get_tokio_runtime() -> &'static Runtime {
+    TOKIO_RUNTIME.get_or_init(|| {
+        Runtime::new().expect("Failed to create tokio runtime")
+    })
+}
 
 use log::*;
 use std::io::{Error, ErrorKind, Result};
@@ -97,7 +109,9 @@ impl ServerManager {
         #[cfg(feature = "use-yamux")]
         {
             let addr = tokio_vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
-            let listener = tokio_vsock::VsockListener::bind(addr)?;
+            let listener = get_tokio_runtime().block_on(async {
+                tokio_vsock::VsockListener::bind(addr)
+            })?;
             return Ok(Listener::Yamux(listener));
         }
 
@@ -117,6 +131,8 @@ impl ServerManager {
             ));
         }
 
+        println!("init 0");
+
         let transport = match &self.listener {
             #[cfg(feature = "use-xtransport")]
             Some(Listener::XTransport(xtransport_listener)) => {
@@ -131,10 +147,14 @@ impl ServerManager {
             },
             #[cfg(feature = "use-yamux")]
             Some( Listener::Yamux(yamux_listener)) => {
-                let (stream, addr) = block_on(async{
-                    let (ret1, ret2) = yamux_listener.accept().await?;
-                    Ok::<_, std::io::Error>((ret1, ret2))
+                println!("init 1");
+                let (stream, addr) = get_tokio_runtime().block_on(async {
+                    println!("Waiting for client connection...");
+                    let temp = yamux_listener.accept().await?;
+                    println!("init 2");
+                    Ok::<_, std::io::Error>(temp)
                 })?;
+                println!("init 3");
                 info!("Accepted yamux connection from {:?}", addr);
                 // 创建 YamuxTransport 实例并从流初始化
                 let mut transport = YamuxTransportHandler::new(yamux::Mode::Server);

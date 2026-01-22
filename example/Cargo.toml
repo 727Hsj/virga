@@ -4,8 +4,8 @@ members = ["client_test", "server_test"]
 
 
 [workspace.dependencies]
-# virga = { path = "/home/greatwall/code/virga", default-features = false, features = ["use-xtransport"]}
-virga = { git = "https://github.com/727Hsj/virga.git", branch = "dev", default-features = false, features = ["use-xtransport"]}
+virga = { path = "/home/greatwall/code/virga", default-features = false, features = ["use-yamux"]}
+# virga = { git = "https://github.com/727Hsj/virga.git", branch = "dev", default-features = false, features = ["use-xtransport"]}
 
 env_logger = "0.11"
 log = "0.4"
