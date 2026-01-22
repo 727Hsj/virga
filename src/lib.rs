@@ -63,6 +63,9 @@
 //! }
 //! ```
 
+#[cfg(all(feature = "use-xtransport", feature = "use-yamux"))]
+compile_error!("feature1 and feature2 cannot be enabled at the same time");
+
 // 错误层
 pub mod error;
 pub use error::{Result, VirgeError};
@@ -74,8 +77,7 @@ pub mod transport;
 pub mod client;
 pub mod server;
 
-pub use client::ClientConfig;
-pub use client::client_sync::VirgeClient;
+pub use client::{ClientConfig, VirgeClient};
 pub use server::{ServerConfig, ServerManager, VirgeServer};
 
 pub const KIB: usize = 1024;
