@@ -11,8 +11,6 @@
 
 #[cfg(feature = "use-xtransport")]
 mod xtransport_impl;
-#[cfg(feature = "use-yamux")]
-mod yamux_impl;
 
 
 // 具体实现模块
