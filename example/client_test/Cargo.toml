@@ -5,6 +5,5 @@ edition = "2024"
 
 [dependencies]
 virga.workspace = true
-tokio.workspace = true
 env_logger.workspace = true
 log.workspace = true
