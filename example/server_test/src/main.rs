@@ -9,7 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut manager = ServerManager::new(config);
     manager.start()?;
 
-    while let Ok(mut server) = manager.accept() {
+    if let Ok(mut server) = manager.accept() {
         println!("there is a new virgeserver");
         let handle = thread::spawn(move ||  {
             // 处理接收数据
@@ -17,7 +17,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("after get virga server, the server is connected");
             }
             let data_result = server.recv();
-            println!("server.recv");
             let data = match data_result {
                 Ok(data) => data,
                 Err(e) => {
