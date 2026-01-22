@@ -68,12 +68,5 @@ impl From<xtransport::Error> for VirgeError {
     }
 }
 
-#[cfg(feature = "use-yamux")]
-impl From<yamux::ConnectionError> for VirgeError {
-    fn from(err: yamux::ConnectionError) -> Self {
-        VirgeError::Other(format!("Yamux error: {}", err))
-    }
-}
-
 /// 操作结果类型别名
 pub type Result<T> = std::result::Result<T, VirgeError>;

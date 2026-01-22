@@ -19,8 +19,6 @@ use std::io::{Error, ErrorKind, Result};
 
 /// 监听器枚举
 enum Listener {
-    #[cfg(feature = "use-yamux")]
-    Yamux(tokio_vsock::VsockListener),
     #[cfg(feature = "use-xtransport")]
     XTransport(vsock::VsockListener),
 }
