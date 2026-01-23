@@ -12,6 +12,8 @@ pub struct VirgeClient {
     transport_handler: XTransportHandler,
     config: ClientConfig,
     connected: bool,
+    read_buffer: Vec<u8>,  // 读取缓存
+    read_total_len: usize,  // 读取消息总长度
 }
 
 impl VirgeClient {
@@ -20,6 +22,8 @@ impl VirgeClient {
             transport_handler: XTransportHandler::new(),
             config,
             connected: false,
+            read_buffer: Vec::new(),
+            read_total_len: 0,
         }
     }
 
@@ -44,6 +48,14 @@ impl VirgeClient {
     /// 断开连接
     pub fn disconnect(&mut self) -> Result<()> {
         info!("VirgeClient disconnecting");
+        if !self.read_buffer.is_empty() {
+            warn!("Disconnecting with {} bytes of unread data in buffer", self.read_buffer.len());
+            return Err(Error::new(
+                ErrorKind::Other,
+                format!("Cannot disconnect: {} bytes of unread data remaining", self.read_buffer.len()),
+            ));
+        }
+
         self.transport_handler.disconnect()?;
         self.connected = false;
         Ok(())
@@ -92,11 +104,29 @@ impl Read for VirgeClient {
             ));
         }
 
+        if !self.read_buffer.is_empty() {
+            let len = std::cmp::min(self.read_buffer.len(), buf.len());
+            buf[..len].copy_from_slice(&self.read_buffer[..len]);
+            self.read_buffer.drain(..len);
+            return Ok(len);
+        }
+        // 之前读到的消息数据已全部被拿走
+        if self.read_buffer.is_empty() && self.read_total_len != 0{
+            self.read_total_len = 0;
+            return Ok(0);
+        }
+
         match self.transport_handler.recv() {
             Ok(data) => {
-                let len = std::cmp::min(data.len(), buf.len());
-                buf[..len].copy_from_slice(&data[..len]);
-                Ok(len)
+                self.read_total_len = data.len();
+                if data.len() <= buf.len() {
+                    buf[..data.len()].copy_from_slice(&data);
+                    Ok(data.len())
+                } else {
+                    buf.copy_from_slice(&data[..buf.len()]);
+                    self.read_buffer.extend_from_slice(&data[buf.len()..]);
+                    Ok(buf.len())
+                }
             }
             Err(e) => Err(Error::new(
                 ErrorKind::Other,
@@ -104,7 +134,6 @@ impl Read for VirgeClient {
             )),
         }
     }
-
 }
 
 impl Write for VirgeClient {

@@ -1,5 +1,6 @@
 use std::io::{Read, Write};
 use std::io::{Error, ErrorKind, Result};
+use log::*;
 use crate::transport::XTransportHandler;
 
 
@@ -7,11 +8,18 @@ use crate::transport::XTransportHandler;
 pub struct VirgeServer {
     transport_handler: XTransportHandler, 
     connected: bool,
+    read_buffer: Vec<u8>,  // 读取缓存
+    read_total_len: usize, // 读取消息总长度
 }
 
 impl VirgeServer {
     pub fn new(trans: XTransportHandler, conn: bool) -> Self{
-        Self { transport_handler: trans, connected: conn }
+        Self { 
+            transport_handler: trans, 
+            connected: conn,
+            read_buffer: Vec::new(),
+            read_total_len: 0,
+        }
     }
 }
 
@@ -42,10 +50,17 @@ impl VirgeServer {
 
     /// 断开连接
     pub fn disconnect(&mut self) -> Result<()> {
-        if self.connected {
-            self.transport_handler.disconnect()?;
-            self.connected = false;
+        info!("VirgeServer disconnecting");
+        if !self.read_buffer.is_empty() {
+            warn!("Disconnecting with {} bytes of unread data in buffer", self.read_buffer.len());
+            return Err(Error::new(
+                ErrorKind::Other,
+                format!("Cannot disconnect: {} bytes of unread data remaining", self.read_buffer.len()),
+            ));
         }
+
+        self.transport_handler.disconnect()?;
+        self.connected = false;
         Ok(())
     }
 
@@ -64,11 +79,39 @@ impl Read for VirgeServer {
                 "Server not connected",
             ));
         }
+        
+        if !self.read_buffer.is_empty() {
+            let len = std::cmp::min(self.read_buffer.len(), buf.len());
+            buf[..len].copy_from_slice(&self.read_buffer[..len]);
+            self.read_buffer.drain(..len);
+            if self.read_buffer.is_empty(){
+                self.read_total_len = 0;
+            }
+            return Ok(len);
+        }
+        // 之前读到的消息数据已全部被拿走
+        if self.read_buffer.is_empty() && self.read_total_len != 0{
+            self.read_total_len = 0;
+            return Ok(0);
+        }
 
-        let data = self.transport_handler.recv()?;
-        let len = std::cmp::min(data.len(), buf.len());
-        buf[..len].copy_from_slice(&data[..len]);
-        Ok(len)
+        match self.transport_handler.recv() {
+            Ok(data) => {
+                self.read_total_len = data.len();
+                if data.len() <= buf.len() {
+                    buf[..data.len()].copy_from_slice(&data);
+                    Ok(data.len())
+                } else {
+                    buf.copy_from_slice(&data[..buf.len()]);
+                    self.read_buffer.extend_from_slice(&data[buf.len()..]);
+                    Ok(buf.len())
+                }
+            }
+            Err(e) => Err(Error::new(
+                ErrorKind::Other,
+                format!("Read error: {}", e),
+            )),
+        }
     }
 
 }
