@@ -1,6 +1,7 @@
 use std::io::{Read, Write};
 use std::io::{Error, ErrorKind, Result};
 use log::*;
+use crate::ReadState;
 use crate::transport::XTransportHandler;
 
 
@@ -9,7 +10,7 @@ pub struct VirgeServer {
     transport_handler: XTransportHandler, 
     connected: bool,
     read_buffer: Vec<u8>,  // 读取缓存
-    read_total_len: usize, // 读取消息总长度
+    read_state: ReadState,  // 读取状态
 }
 
 impl VirgeServer {
@@ -18,7 +19,7 @@ impl VirgeServer {
             transport_handler: trans, 
             connected: conn,
             read_buffer: Vec::new(),
-            read_total_len: 0,
+            read_state: ReadState::Idle,
         }
     }
 }
@@ -71,49 +72,82 @@ impl VirgeServer {
 }
 
 
-impl Read for VirgeServer {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        if !self.connected {
-            return Err(Error::new(
-                ErrorKind::NotConnected,
-                "Server not connected",
-            ));
-        }
-        
-        if !self.read_buffer.is_empty() {
-            let len = std::cmp::min(self.read_buffer.len(), buf.len());
-            buf[..len].copy_from_slice(&self.read_buffer[..len]);
-            self.read_buffer.drain(..len);
-            if self.read_buffer.is_empty(){
-                self.read_total_len = 0;
-            }
-            return Ok(len);
-        }
-        // 之前读到的消息数据已全部被拿走
-        if self.read_buffer.is_empty() && self.read_total_len != 0{
-            self.read_total_len = 0;
-            return Ok(0);
-        }
-
+impl VirgeServer {
+    fn read_new_message(&mut self, buf: &mut [u8]) -> Result<usize> {
         match self.transport_handler.recv() {
             Ok(data) => {
-                self.read_total_len = data.len();
                 if data.len() <= buf.len() {
                     buf[..data.len()].copy_from_slice(&data);
                     Ok(data.len())
                 } else {
-                    buf.copy_from_slice(&data[..buf.len()]);
-                    self.read_buffer.extend_from_slice(&data[buf.len()..]);
-                    Ok(buf.len())
+                    let len = buf.len();
+                    buf.copy_from_slice(&data[..len]);
+                    self.read_buffer.extend_from_slice(&data[len..]);
+                    
+                    self.read_state = ReadState::Reading {
+                        total: data.len(),
+                        read: len,
+                    };
+                    Ok(len)
                 }
             }
-            Err(e) => Err(Error::new(
+            Err(e) => return Err(Error::new(
                 ErrorKind::Other,
                 format!("Read error: {}", e),
             )),
         }
     }
 
+    /// 检查是否还有数据可读（包括rbuf中的数据）
+    pub fn no_has_data(&self) -> bool {
+        self.read_buffer.is_empty() && self.read_state == ReadState::Idle
+    }
+    
+}
+
+
+
+impl Read for VirgeServer {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        if !self.connected {
+            return Err(Error::new(
+                ErrorKind::NotConnected,
+                "Client not connected",
+            ));
+        }
+
+        match self.read_state {
+            ReadState::Idle => {
+                // 直接从传输层读取
+                return self.read_new_message(buf);
+            }
+            ReadState::Reading { total, read, .. } => {
+                // 从rbuf中读取剩余数据
+                if !self.read_buffer.is_empty() {
+                    let len = std::cmp::min(self.read_buffer.len(), buf.len());
+                    buf[..len].copy_from_slice(&self.read_buffer[..len]);
+                    self.read_buffer.drain(..len);
+                    
+                    let new_read = read + len;
+                    if new_read == total {
+                        // 消息读取完成
+                        self.read_state = ReadState::Idle;
+                    } else {
+                        // 更新状态
+                        self.read_state = ReadState::Reading {
+                            total,
+                            read: new_read,
+                        };
+                    }
+                    Ok(len)
+                } else {
+                    // rbuf为空但状态是Reading，这不应该发生
+                    self.read_state = ReadState::Idle;
+                    Ok(0)
+                }
+            }
+        }
+    }
 }
 
 impl Write for VirgeServer {

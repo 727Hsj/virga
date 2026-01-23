@@ -90,3 +90,12 @@ pub const DEFAULT_SERVER_PORT: usize = 1234;
 
 pub const DEAFULT_CHUNK_SIZE: usize = KIB;
 pub const DEFAULT_IS_ACK: bool = false;
+
+#[derive(PartialEq)]
+enum ReadState {
+    Idle,                    // 空闲，等待新消息
+    Reading {                // 正在读取消息
+        total: usize,        // 消息总长度
+        read: usize,         // 已读取长度
+    },
+}
