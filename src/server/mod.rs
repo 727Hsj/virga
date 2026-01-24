@@ -9,13 +9,12 @@
 #[cfg(feature = "use-xtransport")]
 pub mod server_sync;
 #[cfg(feature = "use-xtransport")]
-pub use server_sync::VirgeServer;
-#[cfg(feature = "use-xtransport")]
 pub use crate::transport::XTransportHandler;
+#[cfg(feature = "use-xtransport")]
+pub use server_sync::VirgeServer;
 
 use log::*;
 use std::io::{Error, ErrorKind, Result};
-
 
 /// 监听器枚举
 enum Listener {
@@ -93,7 +92,7 @@ impl ServerManager {
     pub fn accept(&mut self) -> Result<VirgeServer> {
         if !self.running {
             return Err(Error::new(
-                ErrorKind::Other, 
+                ErrorKind::Other,
                 format!("ServerManager not running"),
             ));
         }
@@ -107,8 +106,7 @@ impl ServerManager {
 
                     // 创建 XTransportHandler 实例并从流初始化
                     let mut transport = XTransportHandler::new();
-                    transport
-                        .from_stream(stream, self.config.chunk_size, self.config.is_ack)?;
+                    transport.from_stream(stream, self.config.chunk_size, self.config.is_ack)?;
                     transport
                 }
             };

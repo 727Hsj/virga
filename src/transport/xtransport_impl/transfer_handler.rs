@@ -6,7 +6,6 @@
 //! - 针对 vsock 优化的传输协议
 //! - 轻量级设计
 
-
 use crate::error::{Result, VirgeError};
 use log::*;
 use vsock::{VsockAddr, VsockStream};
@@ -28,7 +27,6 @@ impl XTransportHandler {
         }
     }
 }
-
 
 impl XTransportHandler {
     pub fn connect(&mut self, cid: u32, port: u32, chunksize: u32, isack: bool) -> Result<()> {
@@ -95,12 +93,7 @@ impl XTransportHandler {
         self.stream.is_some() && self.transport.is_some()
     }
 
-    pub fn from_stream(
-        &mut self,
-        stream: VsockStream,
-        chunksize: u32,
-        isack: bool,
-    ) -> Result<()> {
+    pub fn from_stream(&mut self, stream: VsockStream, chunksize: u32, isack: bool) -> Result<()> {
         info!("XTransport initializing from existing stream");
 
         let config = TransportConfig::default()

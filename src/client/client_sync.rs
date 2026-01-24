@@ -1,5 +1,5 @@
-use std::io::{Read, Write};
 use std::io::{Error, ErrorKind, Result};
+use std::io::{Read, Write};
 
 use log::*;
 
@@ -7,14 +7,13 @@ use super::ClientConfig;
 use crate::ReadState;
 use crate::transport::XTransportHandler;
 
-
 /// 同步客户端
 pub struct VirgeClient {
     transport_handler: XTransportHandler,
     config: ClientConfig,
     connected: bool,
     read_buffer: Vec<u8>,  // 读取缓存
-    read_state: ReadState,  // 读取状态
+    read_state: ReadState, // 读取状态
 }
 
 impl VirgeClient {
@@ -35,13 +34,12 @@ impl VirgeClient {
             self.config.server_cid, self.config.server_port
         );
 
-        self.transport_handler
-            .connect(
-                self.config.server_cid,
-                self.config.server_port,
-                self.config.chunk_size,
-                self.config.is_ack,
-            )?;
+        self.transport_handler.connect(
+            self.config.server_cid,
+            self.config.server_port,
+            self.config.chunk_size,
+            self.config.is_ack,
+        )?;
         self.connected = true;
         Ok(())
     }
@@ -50,10 +48,16 @@ impl VirgeClient {
     pub fn disconnect(&mut self) -> Result<()> {
         info!("VirgeClient disconnecting");
         if !self.read_buffer.is_empty() {
-            warn!("Disconnecting with {} bytes of unread data in buffer", self.read_buffer.len());
+            warn!(
+                "Disconnecting with {} bytes of unread data in buffer",
+                self.read_buffer.len()
+            );
             return Err(Error::new(
                 ErrorKind::Other,
-                format!("Cannot disconnect: {} bytes of unread data remaining", self.read_buffer.len()),
+                format!(
+                    "Cannot disconnect: {} bytes of unread data remaining",
+                    self.read_buffer.len()
+                ),
             ));
         }
 
@@ -66,28 +70,28 @@ impl VirgeClient {
     pub fn send(&mut self, data: Vec<u8>) -> Result<usize> {
         if !self.connected {
             return Err(Error::new(
-                ErrorKind::NotConnected, 
+                ErrorKind::NotConnected,
                 format!("Client not connected"),
-                )
-            );
+            ));
         }
 
-        self.transport_handler.send(&data)
-        .map_err(|e| Error::other(format!("send error: {}", e)))
+        self.transport_handler
+            .send(&data)
+            .map_err(|e| Error::other(format!("send error: {}", e)))
     }
 
     /// 接收数据
     pub fn recv(&mut self) -> Result<Vec<u8>> {
         if !self.connected {
             return Err(Error::new(
-                ErrorKind::NotConnected, 
+                ErrorKind::NotConnected,
                 format!("Client not connected"),
-                )
-            );
+            ));
         }
 
-        self.transport_handler.recv()
-        .map_err(|e| Error::other(format!("recv error: {}", e)))
+        self.transport_handler
+            .recv()
+            .map_err(|e| Error::other(format!("recv error: {}", e)))
     }
 
     /// 检查连接状态
@@ -107,7 +111,7 @@ impl VirgeClient {
                     let len = buf.len();
                     buf.copy_from_slice(&data[..len]);
                     self.read_buffer.extend_from_slice(&data[len..]);
-                    
+
                     self.read_state = ReadState::Reading {
                         total: data.len(),
                         read: len,
@@ -115,10 +119,7 @@ impl VirgeClient {
                     Ok(len)
                 }
             }
-            Err(e) => return Err(Error::new(
-                ErrorKind::Other,
-                format!("Read error: {}", e),
-            )),
+            Err(e) => return Err(Error::new(ErrorKind::Other, format!("Read error: {}", e))),
         }
     }
 
@@ -126,16 +127,12 @@ impl VirgeClient {
     pub fn no_has_data(&self) -> bool {
         self.read_buffer.is_empty() && self.read_state == ReadState::Idle
     }
-    
 }
 
 impl Read for VirgeClient {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         if !self.connected {
-            return Err(Error::new(
-                ErrorKind::NotConnected,
-                "Client not connected",
-            ));
+            return Err(Error::new(ErrorKind::NotConnected, "Client not connected"));
         }
 
         match self.read_state {
@@ -149,7 +146,7 @@ impl Read for VirgeClient {
                     let len = std::cmp::min(self.read_buffer.len(), buf.len());
                     buf[..len].copy_from_slice(&self.read_buffer[..len]);
                     self.read_buffer.drain(..len);
-                    
+
                     let new_read = read + len;
                     if new_read == total {
                         // 消息读取完成
@@ -175,18 +172,12 @@ impl Read for VirgeClient {
 impl Write for VirgeClient {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         if !self.connected {
-            return Err(Error::new(
-                ErrorKind::NotConnected,
-                "Client not connected",
-            ));
+            return Err(Error::new(ErrorKind::NotConnected, "Client not connected"));
         }
 
         match self.transport_handler.send(buf) {
             Ok(len) => Ok(len),
-            Err(e) => Err(Error::new(
-                ErrorKind::Other,
-                format!("Write error: {}", e),
-            )),
+            Err(e) => Err(Error::new(ErrorKind::Other, format!("Write error: {}", e))),
         }
     }
 
@@ -194,5 +185,3 @@ impl Write for VirgeClient {
         Ok(())
     }
 }
-
-

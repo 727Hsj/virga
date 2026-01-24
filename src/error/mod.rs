@@ -53,9 +53,15 @@ impl From<VirgeError> for std::io::Error {
     fn from(err: VirgeError) -> Self {
         match err {
             VirgeError::IoError(e) => e,
-            VirgeError::ConnectionError(msg) => std::io::Error::new(std::io::ErrorKind::ConnectionRefused, msg),
-            VirgeError::TransportError(msg) => std::io::Error::new(std::io::ErrorKind::InvalidData, msg),
-            VirgeError::ConfigError(msg) => std::io::Error::new(std::io::ErrorKind::InvalidInput, msg),
+            VirgeError::ConnectionError(msg) => {
+                std::io::Error::new(std::io::ErrorKind::ConnectionRefused, msg)
+            }
+            VirgeError::TransportError(msg) => {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, msg)
+            }
+            VirgeError::ConfigError(msg) => {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, msg)
+            }
             VirgeError::Other(msg) => std::io::Error::new(std::io::ErrorKind::Other, msg),
         }
     }
